@@ -1,5 +1,6 @@
 # A lot of code was taken from AI assignment 3 Isola
 import math, copy
+infinity = math.inf
 
 def printBoard(board):
     """
@@ -118,8 +119,8 @@ class tak(Game):
         else:
             self.board = board
             # TODO: for custom board, update custome stone and capstone count
-        self.to_move = to_move
-        self.moves = self.listMoves(self.board, self.to_move, firstTurn, self.gameStones)[0] # Note: I don't really think implementing this line is necessary
+        #self.to_move = to_move
+        # self.moves = self.listMoves(self.board, self.to_move, firstTurn, self.gameStones)[0] # Note: I don't really think implementing this line is necessary
 
     def topValue(self, board, x, z):
         """Return height and top stone of board space"""
@@ -132,7 +133,7 @@ class tak(Game):
                 height += 1
         return height, board[x][z][height - 1]
 
-    def listMoves(self, board, player, firstTurn, boardStoneCount):
+    def listMoves(self, board, boardStoneCount, player, firstTurn):
         """List legal moves for a given board state"""
         lm = []
         # For every square
@@ -262,9 +263,9 @@ class tak(Game):
                                         #finalDropoff = map(sum, zip(dropoffs, dropOffModifications))
                                         lm.append(move(pickupCount, x, z, dir, finalDropoff, " ", topStone[0]))
         # Return list of moves and whether it is still first turn.
-        return lm, ((player == "w") and firstTurn)
+        return lm
     
-    def result(self, board, boardStoneCount, candidate:move):
+    def result(self, board, boardStoneCount, candidate:move, player, firstTurn):
         """Resulting board state from move"""
         newBoard = copy.deepcopy(board)
         newBoardStoneCount = copy.deepcopy(boardStoneCount)
@@ -273,23 +274,166 @@ class tak(Game):
             newBoardStoneCount[candidate.color + "S"] -= 1
             newBoard[candidate.column][candidate.row][0] = candidate.color + candidate.stone
         else: # If a movement move
-            # TODO
-            pickedUp = []
-
-            pass
-
+            height = self.topValue(newBoard, candidate.column, candidate.row)[0]
+            pickedUp = newBoard[candidate.column][candidate.row][height - candidate.count:height]
+            for i in range(height - candidate.count, height):
+                newBoard[candidate.column][candidate.row][i] = "  "
+            if candidate.direction == '>':
+                for x in range(1, len(candidate.deposit) + 1):
+                    height = self.topValue(newBoard, candidate.column + x, candidate.row)[0]
+                    newBoard[candidate.column + x][candidate.row][height:height + candidate.deposit[x - 1]] = pickedUp[:candidate.deposit[x - 1]]
+                    pickedUp = pickedUp[candidate.deposit[x - 1]:]
+            elif candidate.direction == '<':
+                for x in range(1, len(candidate.deposit) + 1):
+                    height = self.topValue(newBoard, candidate.column - x, candidate.row)[0]
+                    newBoard[candidate.column - x][candidate.row][height:height + candidate.deposit[x - 1]] = pickedUp[:candidate.deposit[x - 1]]
+                    pickedUp = pickedUp[candidate.deposit[x - 1]:]
+            elif candidate.direction == '+':
+                for z in range(1, len(candidate.deposit) + 1):
+                    height = self.topValue(newBoard, candidate.column, candidate.row + z)[0]
+                    newBoard[candidate.column][candidate.row + z][height:height + candidate.deposit[z - 1]] = pickedUp[:candidate.deposit[z - 1]]
+                    pickedUp = pickedUp[candidate.deposit[z - 1]:]
+            else:
+                for z in range(1, len(candidate.deposit) + 1):
+                    height = self.topValue(newBoard, candidate.column, candidate.row - z)[0]
+                    newBoard[candidate.column][candidate.row - z][height:height + candidate.deposit[z - 1]] = pickedUp[:candidate.deposit[z - 1]]
+                    pickedUp = pickedUp[candidate.deposit[z - 1]:]
         # Remember for, list of drops, first one is NOT how many to keep at initial square, always 0 kept at initial
-        #      (boardState, boardStoneCount, validCheck)
-        return (newBoard, newBoardStoneCount, True)
+        #      (boardState, boardStoneCount)
+        return (newBoard, newBoardStoneCount, (player == "w") * "b" + (player == "b") * "w", ((player == "w") and firstTurn))
     
-    def utility(self, board, boardStoneCount, player):
+    def topBoard(self, board):
+        """Return a 2D board showing just the top stone of every tile"""
+        output = []
+        for x in range(len(board)):
+            column = []
+            for z in range(len(board[0])):
+                stone = self.topValue(board, x, z)[1]
+                value = (stone[1] == "F" or stone[1] == "C") * stone[0] + (stone == "  " or stone[1] == "S") * " "
+                column.append(value)
+            output.append(column)
+        return output
+
+    def utility(self, board, boardStoneCount, player_to_move, weights = [1.0, 1.0, 1.0]):
         """The value of this terminal state to player (AKA heuristic)"""
-        # TODO
-        # If player has won, which player (+infinity or -infinity)
+        # First check for win:
+        top = self.topBoard(board)
+        whiteWin, blackWin = self.checkPaths(top)
+        # If double, then active player wins
+        if all([whiteWin, blackWin]):
+            return -infinity        
         # + is good for player, - is bad for player
-        pass
+        if player_to_move == "w":
+            if whiteWin:
+                return infinity
+            if blackWin:
+                return -infinity
+        else:
+            if whiteWin:
+                return -infinity
+            if blackWin:
+                return infinity
+
+        # Count what stones are on top on the board
+        inGameStones = {
+            "wF": 0,
+            "bF": 0,
+            "wS": 0,
+            "bS": 0,
+            "wC": 0,
+            "bC": 0,
+            "  ": 0
+        }
+        capStoneHeights = {
+            "wC": [],
+            "bC": []
+        }
+        for x in range(self.boardSize):
+            for z in range(self.boardSize):
+                height, value = self.topValue(board, x, z)
+                inGameStones[value] += 1
+                if value in capStoneHeights.keys():
+                    capStoneHeights[value].append(height)
+        # Positive if white wins, negative if black
+        score = inGameStones["wF"] - inGameStones["bF"]
+        # Now check for full board OR for stones running out
+        if inGameStones["  "] == 0 or boardStoneCount["wS"] == 0 or boardStoneCount["bS"] == 0:
+            if player_to_move == "w":
+                return score * infinity
+            else:
+                return -score * infinity
+        
+        # Now apply heuristic
+        # Factors:
+        #   Who has more tiles on the board
+        #   Who has taller capstone
+        #   Who has more stones on top
+        hTotalTileCount = boardStoneCount["bS"] + boardStoneCount["bC"] - boardStoneCount["wS"] - boardStoneCount["wC"]
+        hCapstoneHeights = sum(capStoneHeights["wC"]) - sum(capStoneHeights["bC"])
+        hTopCount = inGameStones["wF"] + inGameStones["wS"] + inGameStones["wC"] - (inGameStones["bF"] + inGameStones["bS"] + inGameStones["bC"])
+        score = hTotalTileCount * weights[0] + hCapstoneHeights * weights[1] + hTopCount *weights[2]
+        return score * (player_to_move == "w") - score * (player_to_move == "b")
+
+    def checkPaths(self, top):
+        """Check if this position has a complete road"""
+        size = len(top)
+        vertLines = top[0]
+        horiLines = [top[j][0] for j in range(size)]
+        for i in range(len(top)):
+            column = top[i]
+            row = [top[j][i] for j in range(size)]
+            # Check if path carries to next layer
+            newVertLines = [" " for _ in range(size)]
+            newHoriLines = [" " for _ in range(size)]
+            for i in range(size):
+                if vertLines[i] != "  " and vertLines[i] == column[i]:
+                    newVertLines[i] = vertLines[i]
+                if horiLines[i] != "  " and horiLines[i] == row[i]:
+                    newHoriLines[i] = horiLines[i]
+            # Now check for path bending
+            # For every path in newLines
+            for i in range(size):
+                # Check above and below every potential path
+                if newVertLines[i] != " ":
+                    lesser = i - 1
+                    if lesser >= 0:
+                        while column[lesser] == newVertLines[i]:
+                            newVertLines[lesser] = newVertLines[i]
+                            lesser -= 1
+                            if lesser < 0:
+                                break
+                    greater = i + 1
+                    if greater < size:
+                        while column[greater] == newVertLines[i]:
+                            newVertLines[greater] = newVertLines[i]
+                            greater += 1
+                            if greater >= size:
+                                break
+                # Check above and below every potential path
+                if newHoriLines[i] != " ":
+                    lesser = i - 1
+                    if lesser >= 0:
+                        while row[lesser] == newHoriLines[i]:
+                            newHoriLines[lesser] = newHoriLines[i]
+                            lesser -= 1
+                            if lesser < 0:
+                                break
+                    greater = i + 1
+                    if greater < size:
+                        while row[greater] == newHoriLines[i]:
+                            newHoriLines[greater] = newHoriLines[i]
+                            greater += 1
+                            if greater >= size:
+                                break
+            vertLines = newVertLines
+            horiLines = newHoriLines
+        
+        whiteWin = ("w" in vertLines) or ("w" in horiLines)
+        blackWin = ("b" in vertLines) or ("b" in horiLines)
+        return (whiteWin, blackWin)
+
     def is_terminal(self, board, boardStoneCount):
-        """Check if one player has won"""
+        """Check if game has ended in this state"""
         # If one player has run out of stones to play
         if boardStoneCount["wS"] == 0 or boardStoneCount["bS"] == 0:
             return True
@@ -305,46 +449,50 @@ class tak(Game):
         if boardFull:
             return True
         # If there is a complete road
-        # TODO: Check for complete road
-        pass
+        top = self.topBoard(board) # Every entry is either "w", "b", or " "
+        if any(self.checkPaths(top)):
+            return True
+        
+        return False
 
 
-def play_game(game, strategies: dict, verbose = False):
+def play_game(game, strategies: dict, verbose = False, state = None):
     """Play a turn-taking game. `strategies` is a {player_name: function} dict,
     where function(state, game) is used to get the player's move."""
     # TODO: this is copied from Isola, need to modify to work with Tak
-    state = game.board
+    # This true is whether it is first turn
+    if state == None:
+        state = (game.board, game.gameStones, "w", True)
     if verbose:
         print("initial state")
-        print(state)
-    while not game.is_terminal(state):
-        player = game.to_move
-        move = strategies[player](game, state)
-        state = game.result(state, move)
+        print("to move: ", state[2])
+        printBoard(state[0])
+    while not game.is_terminal(state[0], state[1]):
+        move = strategies[state[2]](game, state)
         if verbose:
-            print('Player', player, 'move:', move)
-            print(game.prettyboard(state.board))
-    uf = game.utility(state,'w')
+            print('Player:', state[2], 'move:', move)
+            printBoard(state[0])
+        state = game.result(state[0], state[1], move, state[2], state[3])
+    uf = game.utility(state[0], state[1],'w')
     if verbose:
         print('End-of-game state')
-        game.display(state)
+        printBoard(state[0])
         print('End-of-game utility: {0}'.format(uf))
-    return state,uf
+    return state, uf
 
-infinity = math.inf
 # Alphabeta_search
 def alphabeta_search(game, state):
     """Search game to determine best action; use alpha-beta pruning.
     As in [Figure 5.7], this version searches all the way to the leaves."""
 
-    player = state.to_move
+    player = state[2]
 
     def max_value(state, alpha, beta):
-        if game.is_terminal(state):
-            return game.utility(state, player), None
+        if game.is_terminal(state[0], state[1]):
+            return game.utility(state[0], state[1], player), None
         v, move = -infinity, None
-        for a in game.actions(state):
-            v2, _ = min_value(game.result(state, a), alpha, beta)
+        for a in game.listMoves(state[0], state[1], state[2], state[3]):
+            v2, _ = min_value(game.result(state[0], state[1], a, state[2], state[3]), alpha, beta)
             if v2 > v:
                 v, move = v2, a
                 alpha = max(alpha, v)
@@ -353,11 +501,11 @@ def alphabeta_search(game, state):
         return v, move
 
     def min_value(state, alpha, beta):
-        if game.is_terminal(state):
-            return game.utility(state, player), None
+        if game.is_terminal(state[0], state[1]):
+            return game.utility(state[0], state[1], player), None
         v, move = +infinity, None
-        for a in game.actions(state):
-            v2, _ = max_value(game.result(state, a), alpha, beta)
+        for a in game.listMoves(state[0], state[1], state[2], state[3]):
+            v2, _ = max_value(game.result(state[0], state[1], a, state[2], state[3]), alpha, beta)
             if v2 < v:
                 v, move = v2, a
                 beta = min(beta, v)
@@ -371,29 +519,75 @@ def player(search_algorithm):
     """A game player who uses the specified search algorithm"""
     return lambda game, state: search_algorithm(game, state)[1]
 
-def human_player():
+def human_player(game, state):
     """Find some way to take input as move"""
-    # TODO
-    pass
+    moves = game.listMoves(state[0], state[1], state[2], state[3])
+    print(moves)
+    index = int(input("Input your move: "))
+    return moves[index]
 
-# result = play_game(tak(3), \
-#           {'w': human_player, 'b': player(alphabeta_search)}, \
-#           verbose=False)
-# if result[1] == 0:
-#     print("Draw")
-# elif result[1] < 0:
-#     print("Player 2 wins")
-# else:
-#     print("Player 1 wins")
-# print(result[0])
-myGame = tak(3)
-print(myGame.moves)
 
-myGame.board[0][0][0] = "wF"
-myGame.board[0][0][1] = "wF"
-myGame.board[0][1][0] = "bS"
-myGame.board[1][0][0] = "bS"
-printBoard(myGame.board)
 
-print(len(myGame.listMoves(myGame.board, "w", False)[0]))
-print(myGame.listMoves(myGame.board, "w", False)[0])
+
+
+result = play_game(tak(), \
+          {'w': human_player, 'b': player(alphabeta_search)}, \
+          verbose=True)
+if result[1] == 0:
+    print("Draw")
+elif result[1] < 0:
+    print("Black wins")
+else:
+    print("White wins")
+print(result[0])
+
+
+
+
+
+
+
+
+
+# myGame = tak(5)
+
+# myGame.board[0][0][0] = "bF"
+# myGame.board[0][0][1] = "wF"
+# myGame.board[0][0][2] = "bF"
+# myGame.board[0][0][3] = "bC"
+# myGame.board[0][1][0] = "bF"
+# myGame.board[1][0][0] = "bF"
+# myGame.board[1][1][0] = "bF"
+# myGame.board[1][2][0] = "bF"
+# myGame.board[2][2][0] = "bF"
+# myGame.board[3][2][0] = "bF"
+# myGame.board[3][3][0] = "bF"
+# myGame.board[4][3][0] = "bF"
+# myGame.board[3][0][0] = "wF"
+
+
+
+# printBoard(myGame.board)
+# print(myGame.utility(myGame.board, myGame.gameStones, "w"))
+
+
+
+
+
+
+
+# print(myGame.listMoves(myGame.board, "b", False, myGame.gameStones))
+# print(len(myGame.listMoves(myGame.board, "b", False, myGame.gameStones)[0]))
+# print(myGame.is_terminal(myGame.board, myGame.gameStones))
+
+# myMoves = myGame.listMoves(myGame.board, myGame.gameStones, "b", False)
+
+# printBoard(myGame.board)
+# print(myMoves[6])
+# leBoard = myGame.result(myGame.board, myGame.gameStones, myMoves[6], myMoves[6].color, False)[0]
+# printBoard(leBoard)
+# print(len(leBoard))
+# for row in leBoard:
+#     print(len(row))
+#     for column in row:
+#         print(len(column))
