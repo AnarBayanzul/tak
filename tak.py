@@ -1,3 +1,5 @@
+# The AI treats a draw as a loss
+
 # A lot of code was taken from AI assignment 3 Isola
 import math, copy
 infinity = math.inf
@@ -118,7 +120,7 @@ class tak(Game):
             self.gameStones["bC"] = self.capstoneCounts[boardSize]
         else:
             self.board = board
-            # TODO: for custom board, update custome stone and capstone count
+            # TODO: for custom board, update custom stone and capstone count
         #self.to_move = to_move
         # self.moves = self.listMoves(self.board, self.to_move, firstTurn, self.gameStones)[0] # Note: I don't really think implementing this line is necessary
 
@@ -314,6 +316,62 @@ class tak(Game):
             output.append(column)
         return output
 
+
+    def utility_objective(self, board, boardStoneCount, player_to_move, weights = [1.0, 1.0, 1.0]):
+        """The value of this terminal state to player (AKA heuristic)"""
+        # First check for win:
+        top = self.topBoard(board)
+        whiteWin, blackWin = self.checkPaths(top)
+        # If double, then active player wins
+        if all([whiteWin, blackWin]):
+            if player_to_move == "w":
+                return -infinity
+            else:
+                return +infinity        
+        # + is good for player, - is bad for player
+        if whiteWin:
+            return infinity
+        if blackWin:
+            return -infinity
+
+        # Count what stones are on top on the board
+        inGameStones = {
+            "wF": 0,
+            "bF": 0,
+            "wS": 0,
+            "bS": 0,
+            "wC": 0,
+            "bC": 0,
+            "  ": 0
+        }
+        capStoneHeights = {
+            "wC": [],
+            "bC": []
+        }
+        for x in range(self.boardSize):
+            for z in range(self.boardSize):
+                height, value = self.topValue(board, x, z)
+                inGameStones[value] += 1
+                if value in capStoneHeights.keys():
+                    capStoneHeights[value].append(height)
+        # Positive if white wins, negative if black
+        score = inGameStones["wF"] - inGameStones["bF"]
+        # Now check for full board OR for stones running out
+        if inGameStones["  "] == 0 or boardStoneCount["wS"] == 0 or boardStoneCount["bS"] == 0:
+            return score * infinity
+        
+        # Now apply heuristic
+        # Factors:
+        #   Who has more tiles on the board
+        #   Who has taller capstone
+        #   Who has more stones on top
+        hTotalTileCount = boardStoneCount["bS"] + boardStoneCount["bC"] - boardStoneCount["wS"] - boardStoneCount["wC"]
+        hCapstoneHeights = sum(capStoneHeights["wC"]) - sum(capStoneHeights["bC"])
+        hTopCount = inGameStones["wF"] + inGameStones["wS"] + inGameStones["wC"] - (inGameStones["bF"] + inGameStones["bS"] + inGameStones["bC"])
+        score = hTotalTileCount * weights[0] + hCapstoneHeights * weights[1] + hTopCount *weights[2]
+        return score
+
+
     def utility(self, board, boardStoneCount, player_to_move, weights = [1.0, 1.0, 1.0]):
         """The value of this terminal state to player (AKA heuristic)"""
         # First check for win:
@@ -358,6 +416,8 @@ class tak(Game):
         score = inGameStones["wF"] - inGameStones["bF"]
         # Now check for full board OR for stones running out
         if inGameStones["  "] == 0 or boardStoneCount["wS"] == 0 or boardStoneCount["bS"] == 0:
+            if score == 0: # Don't play for draw
+                score = -1
             if player_to_move == "w":
                 return score * infinity
             else:
@@ -452,15 +512,12 @@ class tak(Game):
         top = self.topBoard(board) # Every entry is either "w", "b", or " "
         if any(self.checkPaths(top)):
             return True
-        
         return False
-
 
 def play_game(game, strategies: dict, verbose = False, state = None):
     """Play a turn-taking game. `strategies` is a {player_name: function} dict,
     where function(state, game) is used to get the player's move."""
-    # TODO: this is copied from Isola, need to modify to work with Tak
-    # This true is whether it is first turn
+
     if state == None:
         state = (game.board, game.gameStones, "w", True)
     if verbose:
@@ -471,8 +528,9 @@ def play_game(game, strategies: dict, verbose = False, state = None):
         move = strategies[state[2]](game, state)
         if verbose:
             print('Player:', state[2], 'move:', move)
-            printBoard(state[0])
         state = game.result(state[0], state[1], move, state[2], state[3])
+        if verbose:
+            printBoard(state[0])
     uf = game.utility(state[0], state[1],'w')
     if verbose:
         print('End-of-game state')
@@ -481,43 +539,74 @@ def play_game(game, strategies: dict, verbose = False, state = None):
     return state, uf
 
 # Alphabeta_search
-def alphabeta_search(game, state):
+def alphabeta_search(game, state, depth = 3):
     """Search game to determine best action; use alpha-beta pruning.
     As in [Figure 5.7], this version searches all the way to the leaves."""
-
-    player = state[2]
-
-    def max_value(state, alpha, beta):
-        if game.is_terminal(state[0], state[1]):
-            return game.utility(state[0], state[1], player), None
-        v, move = -infinity, None
-        for a in game.listMoves(state[0], state[1], state[2], state[3]):
-            v2, _ = min_value(game.result(state[0], state[1], a, state[2], state[3]), alpha, beta)
+    def max_value(state, alpha, beta, depth):
+        if game.is_terminal(state[0], state[1]) or depth <= 0:
+            return game.utility(state[0], state[1], state[2]), None
+        moves = game.listMoves(state[0], state[1], state[2], state[3])
+        v, move = -infinity, moves[0]
+        for a in moves:
+            v2, _ = min_value(game.result(state[0], state[1], a, state[2], state[3]), alpha, beta, depth - 1)
             if v2 > v:
                 v, move = v2, a
                 alpha = max(alpha, v)
             if v >= beta:
                 return v, move
+        if move == None and v == -infinity:
+            # If all moves are bad
+            print("this happened")
+            move = a
         return v, move
 
-    def min_value(state, alpha, beta):
-        if game.is_terminal(state[0], state[1]):
-            return game.utility(state[0], state[1], player), None
-        v, move = +infinity, None
-        for a in game.listMoves(state[0], state[1], state[2], state[3]):
-            v2, _ = max_value(game.result(state[0], state[1], a, state[2], state[3]), alpha, beta)
+    def min_value(state, alpha, beta, depth):
+        if game.is_terminal(state[0], state[1]) or depth == 0:
+            return game.utility(state[0], state[1], state[2]), None
+        moves = game.listMoves(state[0], state[1], state[2], state[3])
+        v, move = +infinity, moves[0]
+        for a in moves:
+            v2, _ = max_value(game.result(state[0], state[1], a, state[2], state[3]), alpha, beta, depth - 1)
             if v2 < v:
                 v, move = v2, a
                 beta = min(beta, v)
             if v <= alpha:
                 return v, move
+        if move == None and v == +infinity:
+             # If all moves are bad
+             print("this happens")
+             move = a
+        return v, move
+    return max_value(state, -infinity, +infinity, depth)
+
+def minimax_search(game, state, depth = 3):
+    """Search game tree to determine best move; return (value, move) pair."""
+    def max_value(state, depth):
+        if game.is_terminal(state[0], state[1]) or depth <= 0:
+            return game.utility(state[0], state[1], state[2]), None
+        v, move = -infinity, None
+        for a in game.listMoves(state[0], state[1], state[2], state[3]):
+            v2, _ = min_value(game.result(state[0], state[1], a, state[2], state[3]), depth - 1)
+            if v2 > v:
+                v, move = v2, a
         return v, move
 
-    return max_value(state, -infinity, +infinity)
+    def min_value(state, depth):
+        if game.is_terminal(state[0], state[1]) or depth <= 0:
+            return game.utility(state[0], state[1], state[2]), None
+        v, move = +infinity, None
+        for a in game.listMoves(state[0], state[1], state[2], state[3]):
+            v2, _ = max_value(game.result(state[0], state[1], a, state[2], state[3]), depth - 1)
+            if v2 < v:
+                v, move = v2, a
+        return v, move
 
-def player(search_algorithm):
+    return max_value(state, depth)
+
+
+def player(search_algorithm, depth):
     """A game player who uses the specified search algorithm"""
-    return lambda game, state: search_algorithm(game, state)[1]
+    return lambda game, state: search_algorithm(game, state, depth)[1]
 
 def human_player(game, state):
     """Find some way to take input as move"""
@@ -528,10 +617,15 @@ def human_player(game, state):
 
 
 
-
-
-result = play_game(tak(), \
-          {'w': human_player, 'b': player(alphabeta_search)}, \
+depth = 4
+# result = play_game(tak(4), \
+#           {'w': human_player, 'b': player(alphabeta_search, depth)}, \
+#           verbose=True)
+# result = play_game(tak(4), \
+#           {'w': player(minimax_search, depth), 'b': player(minimax_search, depth)}, \
+#           verbose=True)
+result = play_game(tak(2), \
+          {'w': player(alphabeta_search, depth), 'b': player(alphabeta_search, depth)}, \
           verbose=True)
 if result[1] == 0:
     print("Draw")
@@ -539,39 +633,25 @@ elif result[1] < 0:
     print("Black wins")
 else:
     print("White wins")
-print(result[0])
+print(result[0][1])
 
 
 
-
-
-
-
-
-
-# myGame = tak(5)
-
+# myGame = tak(2)
 # myGame.board[0][0][0] = "bF"
-# myGame.board[0][0][1] = "wF"
-# myGame.board[0][0][2] = "bF"
-# myGame.board[0][0][3] = "bC"
+# myGame.gameStones["bS"] -= 1
+# theState = (myGame.board, myGame.gameStones, "b", True)
+# print(alphabeta_search(myGame, theState, 5))
+
+# myGame.board[0][0][0] = "wF"
 # myGame.board[0][1][0] = "bF"
-# myGame.board[1][0][0] = "bF"
-# myGame.board[1][1][0] = "bF"
-# myGame.board[1][2][0] = "bF"
-# myGame.board[2][2][0] = "bF"
-# myGame.board[3][2][0] = "bF"
-# myGame.board[3][3][0] = "bF"
-# myGame.board[4][3][0] = "bF"
-# myGame.board[3][0][0] = "wF"
-
-
-
+# myGame.board[1][0][0] = "wF"
+# myGame.gameStones["wS"] -= 2
+# myGame.gameStones["bS"] -= 1
+# print(myGame.gameStones)
 # printBoard(myGame.board)
+# print(myGame.is_terminal(myGame.board, myGame.gameStones))
 # print(myGame.utility(myGame.board, myGame.gameStones, "w"))
-
-
-
 
 
 
