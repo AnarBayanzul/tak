@@ -4,12 +4,17 @@
         <meta charset="utf-8">
         <title>Tak</title>
         <link rel="stylesheet" href="style.css">
+
+        <link rel="stylesheet" href="https://pyscript.net/releases/2023.11.1/core.css" />
+        <script type="module" src="https://pyscript.net/releases/2023.11.1/core.js"></script>
+        
+        <div id="boardSize" class="vars">4</div>
+        <div id="depth" class="vars">2</div>
+        <div id="board" class="vars"></div>
+        <div id="stones" class="vars"></div>
+
     </head>
     <body>
-
-
-
-
         <canvas id="c"></canvas>
         <!-- <script type="importmap">
             {
@@ -20,7 +25,10 @@
               }
         </script> -->
 
+        <py-script src ="./tak.py"></py-script>
+
         <script type="module" src="/main.js"></script>
+        <div id="moves" class="vars"></div>
 
         <!-- <div id="info">Description</div> -->
     </body>
