@@ -1,5 +1,14 @@
 # A lot of code was taken from AI assignment 3 Isola
 import math, copy
+from random import random, shuffle
+from tqdm import tqdm
+import matplotlib.pyplot as plt
+import numpy as np
+try:
+    from js import document
+except ImportError:
+    print("Cannot access HTML")
+    print("This is fine if you're just running the python file.")
 infinity = math.inf
 
 def printBoard(board):
@@ -317,8 +326,6 @@ class tak(Game):
             output.append(column)
         return output
 
-
-
     def utility(self, board, boardStoneCount, player_perspective, player_to_move, weights = [3.0, 1.0, 1.0]):
         """The value of this terminal state to player (AKA heuristic)"""
         # First check for win:
@@ -495,16 +502,16 @@ def play_game(game, strategies: dict, verbose = False, state = None):
     return state, uf
 
 # Alphabeta_search
-def alphabeta_search(game, state, depth = 3):
+def alphabeta_search(game, state, depth, weight):
     """Search game to determine best action; use alpha-beta pruning.
     As in [Figure 5.7], this version searches all the way to the leaves."""
     def max_value(state, alpha, beta, depth):
         # State is:
         # Board, stones, player perspective, then player to move, then first turn
         if depth <= 0:
-            return game.utility(state[0], state[1], state[2], state[3]), None
+            return game.utility(state[0], state[1], state[2], state[3], weight), None
         if game.is_terminal(state[0], state[1]):
-            return game.utility(state[0], state[1], state[2], state[3]), None
+            return game.utility(state[0], state[1], state[2], state[3], weight), None
         moves = game.listMoves(state[0], state[1], state[3], state[4])
         v, candidate = -infinity, moves[0]
         for a in moves:
@@ -519,9 +526,9 @@ def alphabeta_search(game, state, depth = 3):
 
     def min_value(state, alpha, beta, depth):
         if depth <= 0:
-            return game.utility(state[0], state[1], state[2], state[3]), None
+            return game.utility(state[0], state[1], state[2], state[3], weight), None
         if game.is_terminal(state[0], state[1]):
-            return game.utility(state[0], state[1], state[2], state[3]), None
+            return game.utility(state[0], state[1], state[2], state[3], weight), None
         moves = game.listMoves(state[0], state[1], state[3], state[4])
         v, candidate = +infinity, moves[0]
         for a in moves:
@@ -535,9 +542,9 @@ def alphabeta_search(game, state, depth = 3):
         return v, candidate
     return max_value(state, -infinity, +infinity, depth)
 
-def player(search_algorithm, depth):
+def player(search_algorithm, depth, weights):
     """A game player who uses the specified search algorithm"""
-    return lambda game, state: search_algorithm(game, state, depth)[1]
+    return lambda game, state: search_algorithm(game, state, depth, weights)[1]
 
 def human_player(game, state):
     """Find some way to take input as move"""
@@ -546,52 +553,142 @@ def human_player(game, state):
     index = int(input("Input your move: "))
     return moves[index]
 
+def web_interface(game, state):
+    """Find some way to take input as move"""
+    # UNFINISHED
+    moves = game.listMoves(state[0], state[1], state[3], state[4])
+    # TODO
+    # Send complete state and moves list to JS
+    # Retrieve move to choose
+    try:
+        document.getElementById("board").innerHTML = state[0]
+        document.getElementById("stones").innerHTML = state[1]
+        document.getElementById("moves").innerHTML = moves
+    except NameError:
+        pass
+    return moves[0]
 
 
-depth = 5
-result = play_game(tak(3), \
-          {'w': player(alphabeta_search, depth), 'b': player(alphabeta_search, depth)}, \
-          verbose=True)
-if result[1] == 0:
-    print("Draw")
-elif result[1] < 0:
-    print("Black wins")
-else:
-    print("White wins")
-print(result[0][1])
+
+# DIFFERENT OPTIONS
+def playAgainstComputer(depth = 3, boardSize = 3, weights = [3.0, 1.0, 1.0]):
+    # RUN IF YOU WANT TO PLAY AGAINST COMPUTER
+    try:
+        depth = int(document.getElementById("depth").innerHTML)
+        boardSize = int(document.getElementById("boardSize").innerHTML)
+        result = play_game(tak(boardSize), \
+                {'w': web_interface, 'b': player(alphabeta_search, depth, weights)}, \
+                verbose=False)
+        # TODO
+        # Send result to JS
+    except NameError:
+        print("Manually defining depth and board size")
+        result = play_game(tak(boardSize), \
+                {'w': human_player, 'b': player(alphabeta_search, depth, weights)}, \
+                verbose=True)    
+    if result[1] == 0:
+        print("Draw")
+    elif result[1] < 0:
+        print("Black wins")
+    else:
+        print("White wins")
+    print(result[0][1])
+
+def AIvsAI(depth = 4, boardSize = 3, weights1 = [3.0, 1.0, 1.0], weights2 = [3.0, 1.0, 1.0]):
+    # RUN THIS IF YOU WANT TWO AIs to run against eachother
+    try:
+        depth = int(document.getElementById("depth").innerHTML)
+        boardSize = int(document.getElementById("boardSize").innerHTML)
+
+        result = play_game(tak(boardSize), \
+                {'w': player(alphabeta_search, depth, weights1), 'b': player(alphabeta_search, depth, weights2)}, \
+                verbose=False)
+        # TODO
+        # Send result to JS
+    except NameError:
+        print("Manually defining depth and board size")
+        result = play_game(tak(boardSize), \
+                {'w': player(alphabeta_search, depth, weights1), 'b': player(alphabeta_search, depth, weights2)}, \
+                verbose=True)
+    if result[1] == 0:
+        print("Draw")
+    elif result[1] < 0:
+        print("Black wins")
+    else:
+        print("White wins")
+    print(result[0][1])
+
+def simulatedAnnealing(algos = 256, depth = 2, boardSize = 3, times = 10, cutoffSize = 10, coolingFactor = 2, verbose = False):
+    """Search for optimal weights of heuristics"""
+    # How it works:
+    #   Create a number of random weights equal to variable algos
+    #   Run alphab-beta search using these weights, with the specified depth limit
+    #   Have the different random weightings, compete with eachother, keeping the one that wins.
+    #   Repeat until there are a number of weightings equal to the cutoffsize
+    #   Repopulate weights by basing them off of the ones that survived the previous culling
+    #   Repeat number of times equal to variable times
+    #   Note: that each time you repopulate, the children weightings vary from the parent weightings less and less by a factor equal to the variable coolingFactor
 
 
+    print("Starting Optimization")
+    
+    fig = plt.figure()
+    ax = fig.add_subplot(projection="3d")
+    plt.ion()
+    plt.show()
 
-# myGame = tak(2)
-# theState = (myGame.board, myGame.gameStones, "w", True)
-# for _ in range(5):
-#     printBoard(theState[0])
-#     print(theState[1])
-#     searchResult = alphabeta_search(myGame, theState, 5)
-#     print("Next move", searchResult)
-#     print("Move perspective:", theState[2])
-#     print()
-#     print()
-#     theState = myGame.result(theState[0], theState[1], searchResult[1], theState[2], theState[3])
 
-# myGame = tak(2)
-# myGame.board[0][0][0] = "bF"
-# myGame.board[0][0][1] = "wF"
-# myGame.gameStones["wS"] -= 1
-# myGame.gameStones["bS"] -= 1
-# printBoard(myGame.board)
-# print(myGame.utility(myGame.board, myGame.gameStones, "w"))
+    weights = []
+    for _ in range(algos):
+        # Every agent is just three numbers representing how much they value each heuristic
+        weights.append([random(), random(), random()])
+    # Run tournament so many times
+    for layerCount in range(1, times + 1):
+        pbar = tqdm(total = len(weights) - 1)
+        # Run tournament while the number of agents are 
+        while len(weights) > cutoffSize:
+            newWeights = []
+            for i in range(0, len(weights), 2): # For every pair of weights
+                if i + 1 >= len(weights):
+                    newWeights.append(weights[i])
+                    continue
+                result = play_game(tak(boardSize), \
+                    {'w': player(alphabeta_search, depth, weights[i]), 'b': player(alphabeta_search, depth, weights[i + 1])}, \
+                    verbose=False)
+                if result[1] >= 0:
+                    newWeights.append(weights[i])
+                else:
+                    newWeights.append(weights[i + 1])
+                pbar.update(1)
+            weights = newWeights
+        pbar.close()
+        if verbose:
+            print("Best weights of this run are:")
+            print(weights)
+        # Graph these weights
+        data = np.array(weights)
+        x,y,z = data.T
+        ax.scatter(x, y, z)
+        plt.draw()
+        plt.pause(0.1)
 
-# myGame = tak(2)
-# myGame.board[0][0][0] = "bF"
-# myGame.board[0][1][0] = "wF"
-# myGame.gameStones["wS"] -= 1
-# myGame.gameStones["bS"] -= 1
-# printBoard(myGame.board)
-# myMoves = myGame.listMoves(myGame.board, myGame.gameStones, "w", False)
-# print(myMoves)
-# for candidate in myMoves:
-#     myResult = myGame.result(myGame.board, myGame.gameStones, candidate, "w", False)
-#     print(candidate)
-#     print(myGame.utility(myResult[0], myResult[1], "w"))
-#     print("TO PLAY AFTER:(SHOULD BE B):", myResult[2])
+        if layerCount == times:
+            break
+        # Repopulate out of best of population
+        newWeights = []
+        while len(newWeights) < algos:
+            # For every agent who survived
+            for i in range(len(weights)):
+                # Add child with a bit of variation
+                newWeights.append([weights[i][0] + (random() - 0.5) / (coolingFactor ** layerCount), weights[i][1] + (random() - 0.5) / (coolingFactor ** layerCount), weights[i][2] + (random() - 0.5) / (coolingFactor ** layerCount)])
+        weights = newWeights
+        shuffle(weights)
+    print("Best weights out of all runs are:")
+    print(weights)
+    return weights
+
+simulatedAnnealing()
+# playAgainstComputer()
+
+input("Press 'enter' to close figure and exit: ")
+print("python script done!")
