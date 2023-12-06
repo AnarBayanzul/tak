@@ -27,7 +27,6 @@ renderer.setSize( window.innerWidth, window.innerHeight, false );
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 
-
 document.body.appendChild( renderer.domElement );
 
 // Orbit Controls
@@ -45,26 +44,13 @@ controls.update();
 
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
 // # of stones and capstones for each player based on boardSize
 // Two or less doesn't exist (just for testing)
 //                      0,  1,  2,  3,  4,  5,  6,  7,  8
 const stoneCounts    = [0,  0,  2, 10, 15, 21, 30, 40, 50];
 const capstoneCounts = [0,  0,  0,  0,  0,  1,  1,  2,  2];
 
-const boardSize = 4;
+const boardSize = parseInt(document.getElementById("boardSize").innerHTML);
 const whiteColor = 0xe5cbc2;
 const blackColor = 0x7e4735;
 const whiteStones = stoneCounts[boardSize];
@@ -74,52 +60,21 @@ const blackCaps = capstoneCounts[boardSize];
 
 
 
-
-
-
-
 // TODO: FIND A WAY TO GET BOARD FROM TAK.PY
 let boardState = [];
 let pillar = [];
 let column = [];
 for (let i = 0; i < boardSize; i++) {
-    column = []
+    column = [];
     for (let j = 0; j < boardSize; j++) {
-        pillar = []
+        pillar = [];
         for (let k = 0; k < (2 * stoneCounts[boardSize] + capstoneCounts[boardSize]); k++) {
-            pillar.push("  ")
+            pillar.push("  ");
         }
         column.push(pillar);
     }
     boardState.push(column);
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 const boardWidth = 1;
 const boardHeight = 0.1;
@@ -160,23 +115,11 @@ scene.add(whiteCap);
 scene.add(blackCap);
 
 
-
-
-
-
-
-
-
 // x, z, y
 boardState[1][2][0] = 'wF';
-boardState[1][3][0] = "bF";
-boardState[1][3][1] = 'wF';
-boardState[1][3][2] = 'wF';
-boardState[2][0][0] = "bF";
-boardState[3][3][0] = "bF";
-boardState[0][0][4] = "wF";
-
-console.log(boardState);
+// boardState[1][2][1] = 'wF';
+// boardState[1][2][2] = 'wF';
+// boardState[1][2][3] = 'wF';
 
 
 // let translationMatrix;
@@ -185,14 +128,8 @@ console.log(boardState);
 
 
 
-
-
-
-
-
-
 // Place 
-function showBoard(boardState) {
+function showBoard(theBoardState) {
     let piece;
     let xPos, zPos, yPos;
     let translationMatrix;
@@ -204,7 +141,7 @@ function showBoard(boardState) {
     for (let x = 0; x < boardSize; x++) {
         for (let z = 0; z < boardSize; z++) {
             for (let y = 0; y < (2 * stoneCounts[boardSize] + capstoneCounts[boardSize]); y++) {
-                piece = boardState[x][z][y];
+                piece = theBoardState[x][z][y];
                 xPos = -boardWidth / 2 + pieceDimension / 2 + pieceDimension * x;
                 yPos = y * pieceDimension / 4; 
                 zPos =  boardWidth / 2 - pieceDimension / 2 - pieceDimension * z;
@@ -263,12 +200,6 @@ function showBoard(boardState) {
     }
 }
 
-
-
-
-
-
-
 // Load board texture
 const boardTexture = new THREE.TextureLoader().load("textures/board.jpg");
 boardTexture.wrapS = THREE.RepeatWrapping;
@@ -308,6 +239,18 @@ table.position.set(0, -boardHeight, 0);
 table.castShadow = true;
 table.receiveShadow = false;
 
+
+
+
+// Get board info
+let boardHTML = document.getElementById("board");
+let stonesHTML = document.getElementById("stones");
+let movesHTML = document.getElementById("moves");
+
+let boardTEMP;
+let stonesTEMP;
+let movesTEMP;
+
 function resizeRendererToDisplaySize(renderer) {
     const canvas = renderer.domElement;
     const width = canvas. clientWidth;
@@ -320,7 +263,25 @@ function resizeRendererToDisplaySize(renderer) {
 }
 
 function animate() {
+    // Update based on python script
 
+    // convert boardHTML.innerHTML to boardState
+    boardTEMP = boardHTML.innerHTML.split("]], [[")
+
+    for (let i = 0; i < boardTEMP.length; i++) {
+        boardTEMP[i] = boardTEMP[i].split("], [")
+        for (let j = 0; j < boardTEMP[i].length; j++) {
+            boardTEMP[i][j] = boardTEMP[i][j].split(", ")
+            for (let k = 0; k <boardTEMP[i][j].length; k++) {
+                boardTEMP[i][j][k] = boardTEMP[i][j][k].slice(1, -1).replace("[['", "").replace("]", "");
+            }
+        }
+    }
+    if (boardHTML.innerHTML != "") {
+        // boardState = boardTEMP;
+        boardState[1][2][0] = "  ";
+
+    }
 
     if (resizeRendererToDisplaySize){
         const canvas = renderer.domElement;
@@ -332,9 +293,10 @@ function animate() {
     showBoard(boardState);
 
 
-
     controls.update();
-    requestAnimationFrame( animate );
+    setTimeout( function() {
+        requestAnimationFrame( animate );
+    }, 1000 / 60)
     renderer.render( scene, camera );
 }
 animate();
