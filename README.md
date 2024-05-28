@@ -2,7 +2,7 @@
 BFS engine for searching Tak using alpha-beta pruning, multiple custom heuristics, and simulated annealing to tune the weighting of the heuristics.
 
 ## What is tak
-Tak is an abstract board game similar to chess where two players try to compet in building a road from one side of the board to the other first. Not many resources exist for learning and improving in the game so I made a machine learning engine for it.
+Tak is an abstract board game similar to chess where two players try to compet in building a road from one side of the board to the other first. Not many resources exist for learning and improving in the game so I made a AI search engine for it.
 
 For more info on Tak, [click here.](https://en.wikipedia.org/wiki/Tak_(game))
 
